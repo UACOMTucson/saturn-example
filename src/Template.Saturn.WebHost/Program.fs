@@ -23,14 +23,14 @@ open CAS
 let setupConfiguration (config:IConfiguration) =
     {
         connectionString = config.["ConnectionStrings:DefaultConnection"]
-        edsUrl = config.[""]
-        webAuthUrl = config.[""]
-        edsUserName = config.[""]
-        edsPassword = config.[""]
-        configSettingExample = config.[""]
-        environment = config.[""]
-        blobStorageConnectionString = config.[""]
-        sink = config.[""]
+        edsUrl = config.["EDS:Url"]
+        webAuthUrl = config.["WebAuth:Url"]
+        edsUserName = config.["EDS:UserName"]
+        edsPassword = config.["EDS:Password"]
+        configSettingExample = config.["EDS:ConfigSettingExample"]
+        environment = config.["Environment"]
+        blobStorageConnectionString = config.["Azure:BlobStorageConnectionString"]
+        sink = config.["Logging:Sink"]
     }
 
 //https://github.com/chriswill/serilog-sinks-azureblobstorage
@@ -69,15 +69,15 @@ let app = application {
                                     pipeline { render_html (InternalError.layout ex) }
                                     )
     use_router Router.appRouter
-    url "http://saturn.local:8085/"
+    url "https://saturn.local:443/"
     memory_cache
     use_static "static"
     use_gzip
     use_config setupConfiguration 
     use_iis
-    use_cas ""
+    use_cas "webauth url"
     use_cookies_authentication_with_config (fun options -> setupCookies options)
-    //force_ssl (Nullable<int>(8085))
+    force_ssl
 }
 
 [<EntryPoint>]

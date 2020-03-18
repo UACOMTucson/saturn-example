@@ -25,42 +25,19 @@ open Microsoft.Azure.Management.ResourceManager.Fluent.Core
 
 let appPath = "./src/Template.Saturn.WebHost/" |> Fake.IO.Path.getFullName
 let testsPath = "./src/Template.Saturn.Tests" |> Fake.IO.Path.getFullName
-//TODO you wlll need to fill this in if using Fable and SAFE Stack
-//let serverPath = Path.getFullName "./src/Server"
-let clientPath = Path.getFullName "./src/Template.Saturn.Client"
+let infastructurePath = "./src/Template.Saturn.Infrastructure" |> Fake.IO.Path.getFullName
+let corePath = "./src/Template.Saturn.Core" |> Fake.IO.Path.getFullName
 let deployDir = Path.getFullName "./deploy"
 
 let isTeamCity =
     match BuildServer.buildServer with
     | TeamCity -> true
-    | _ -> true
-
-
-let platformTool tool winTool =
-    Trace.trace (sprintf "Tool %s and WinTool %s" tool winTool)
-    let runTool = if Environment.isUnix then tool else winTool
-    match ProcessUtils.tryFindFileOnPath runTool with
-    | Some t -> t
-    | _ ->  let errorMsg =
-                tool + " was not found in path. " +
-                "Please install it and make sure it's available from your path. " +
-                "See https://safe-stack.github.io/docs/quickstart/#install-pre-requisites for more info"
-            failwith errorMsg
+    | _ -> false
 
 let runDotNet cmd workingDir =
     let result =
         DotNet.exec (DotNet.Options.withWorkingDirectory workingDir) cmd ""
     if result.ExitCode <> 0 then failwithf "'dotnet %s' failed in %s" cmd workingDir
-
-let runTool cmd args workingDir =
-    let arguments = args |> String.split ' ' |> Arguments.OfArgs
-    Trace.trace (sprintf "Command %s | Command arguments %s" cmd args)
-    Command.RawCommand (cmd, arguments)
-    |> CreateProcess.fromCommand
-    |> CreateProcess.withWorkingDirectory workingDir
-    |> CreateProcess.ensureExitCode
-    |> Proc.run
-    |> ignore
 
 let openBrowser url =
     //https://github.com/dotnet/corefx/issues/10361
@@ -69,26 +46,6 @@ let openBrowser url =
     |> CreateProcess.ensureExitCodeWithMessage "opening browser failed"
     |> Proc.run
     |> ignore
-
-let nodeTool = platformTool "node" "node.exe"
-let yarnTool = platformTool "yarn" "yarn.cmd"
-
-Trace.trace (sprintf "Node Tool %s" nodeTool)
-Trace.trace (sprintf "Yarn tool %s" yarnTool)
-
-Target.create "InstallDotNetCore" (fun _ ->
-    DotNet.install (fun p -> {p with Version = DotNet.CliVersion.GlobalJson }) |> ignore
-)
-
-Target.create "InstallClient" (fun _ ->
-    printfn "Node version:"
-    runTool nodeTool "--version" __SOURCE_DIRECTORY__
-    printfn "Yarn version:"
-    runTool yarnTool "--version" __SOURCE_DIRECTORY__
-    runTool yarnTool "install --frozen-lockfile" __SOURCE_DIRECTORY__
-    //TODO you will need this to pack fable
-    runDotNet "restore" clientPath 
-)
 
 Target.create "Restore" (fun _ ->
     DotNet.restore (fun p -> p) appPath |> ignore
@@ -108,7 +65,6 @@ Target.create "UpdateConfiguration" (fun _ ->
 
 )
 
-
 Target.create "Build"  (fun _ ->
     runDotNet "build" appPath
     runDotNet "build" testsPath
@@ -122,7 +78,7 @@ Target.create "Run" (fun _ ->
 
   let browser = async {
     Threading.Thread.Sleep 8000
-    openBrowser "http://saturn.local:8085" |> ignore
+    openBrowser "https://saturn.local:443" |> ignore
   }
   [server; browser;]
   |> Async.Parallel
@@ -130,10 +86,6 @@ Target.create "Run" (fun _ ->
   |> ignore
 )
 
-Target.create "Bundle" (fun _ ->
-    runDotNet (sprintf "publish \"%s\%s\" -c release -o \"%s\"" appPath "Template.Saturn.WebHost.fsproj" deployDir) __SOURCE_DIRECTORY__
-    Shell.copyDir (Path.combine deployDir "public") (Path.combine clientPath "public") FileFilter.allFiles
-)
 
 type ArmOutput =
     { WebAppName : ParameterValue<string>
@@ -211,6 +163,10 @@ Target.create "ArmTemplate" (fun _ ->
 open Fake.IO.Globbing.Operators
 open System.Net
 
+Target.create "Bundle" (fun _ ->
+    runDotNet (sprintf "publish \"%s\%s\" -c release -o \"%s\"" appPath "Template.Saturn.WebHost.fsproj" deployDir) __SOURCE_DIRECTORY__
+)
+
 // https://github.com/SAFE-Stack/SAFE-template/issues/120
 // https://stackoverflow.com/a/6994391/3232646
 type TimeoutWebClient() =
@@ -220,9 +176,9 @@ type TimeoutWebClient() =
         request.Timeout <- 30 * 60 * 1000
         request
 
-//Used to be AppService
 Target.create "Deploy" (fun _ ->
-    //create the deploy folder if it does not exist
+    //https://docs.microsoft.com/en-us/azure/app-service/deploy-zip
+    //https://docs.microsoft.com/en-us/azure/app-service/deploy-configure-credentials#userscope
     if not (Shell.testDir deployDir) then
         Shell.mkdir deployDir
 
@@ -230,8 +186,8 @@ Target.create "Deploy" (fun _ ->
     IO.File.Delete zipFile
     Zip.zip deployDir zipFile !!(deployDir + @"\**\**")
 
-    let appName = deploymentOutputs.Value.WebAppName.value
-    let appPassword = deploymentOutputs.Value.WebAppPassword.value
+    let appName = Environment.environVarOrDefault "AzureAppServiceName" ""
+    let appPassword = Environment.environVarOrDefault "AZURE_DEPLOY_PASSWORD" "" 
 
     let destinationUri = sprintf "https://%s.scm.azurewebsites.net/api/zipdeploy" appName
     let client = new TimeoutWebClient(Credentials = NetworkCredential("$" + appName, appPassword))
@@ -241,72 +197,37 @@ Target.create "Deploy" (fun _ ->
 
 
 Target.create "Test" (fun _ -> 
-    //DotNet.test (fun p -> p) testsPath Use this for xunit
-    runDotNet "run" testsPath |> ignore //Use this for expecto
-
+    runDotNet "run" testsPath |> ignore
 )
 
 Target.create "Clean" (fun _ ->
-    () //TODO cleanup the deploy folder
+    runDotNet "clean" appPath |> ignore
 )
-
-Target.create "Publish" (fun _ ->
-    DotNet.publish (fun p -> { p with OutputPath = Some "./published"} ) appPath
-)
-
-//Target.create "DeployToAzure" (fun _ ->
-//    Target.runOrDefaultWithArguments "AppService"
-//)
 
 open Fake.Core.TargetOperators
 
 
 "Clean" 
-  //==> "InstallDotNetCore"
-  //==> "InstallClient"
-  //==> "CopyConfig"
   ==> "UpdateConfiguration"
   ==> "Restore"
   ==> "Build"
 
 "Clean"
-    //==> "InstallClient"
-    //==> "CopyConfig"
-    ==> "UpdateConfiguration"
-    ==> "Restore"
-    ==> "Build"
-    //==> "Bundle"
-    ==> "Test"
-    ==> "ArmTemplate"
-    ==> "Deploy"
-
-"Clean"
-  //==> "InstallClient"
   ==> "Restore"
+  ==> "Build"
   ==> "Run"
 
 "Clean"
-  //==> "InstallDotNetCore"
-  //==> "InstallClient"
-  //==> "CopyConfig"
   ==> "UpdateConfiguration"
   ==> "Restore"
   ==> "Build"
   ==> "Test"
+
+"ArmTemplate"
 
 "Clean"
-  //==> "InstallDotNetCore"
-  //==> "CopyConfig"
-  ==> "UpdateConfiguration"
-  ==> "Restore"
-  ==> "Build"
-  ==> "Test"
-  ==> "Publish"
-
-//"Clean"
-//  //==> "CopyConfig"
-//  ==> "UpdateConfiguration"
-
+    ==> "Bundle"
+    ==> "Deploy"
 
 Target.runOrDefaultWithArguments "Test"
 

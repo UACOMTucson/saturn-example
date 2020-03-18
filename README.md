@@ -45,6 +45,43 @@ Make sure you have .NET Core 3.1 SDK installed
 	2. Do `dotnet fake build target Run`
 	2. The app should launch in a browser
 
+> Running the app with the build script `(fake)` will start it in `watch` mode. This means that as you make and save changes to the application, `dotnet` will automatically rebuild and restart the application. Look in the shell logs to see when a build has been restarted and completed. At that point you can refresh the application in the browser and those changes will be included. If there are build errors, the build restart will fail and you will not be able to connect to the app in the browser. Look at the build log in the shell and fix the errors.
+
+### Build only
+
+```cmd
+dotnet fake build target Build
+```
+
+### Run tests
+
+See `build.fsx` for for how the `Test` build target works.
+
+```cmd
+dotnt fake build target Test
+```
+
+### Deploy to Azure
+
+See the build script build target `Deploy` to see how this works.
+
+This will work best from TeamCity, but you can test the build script and make sure the app files can be uploaded to Azure. 
+
+To get this working locally you will need to add an environment variable -- make it available system wide.
+
+```text
+Environment variable name
+
+AZURE_DEPLOY_PASSSWORD
+
+The value will be the FTP deploy password created in the portal
+```
+
+[How to create deployment credentials](https://docs.microsoft.com/en-us/azure/app-service/deploy-configure-credentials#userscope
+)
+
+> The Deploy build target creates published files in the folder `deploy`. By default it will copy `appsettings.json` file to the deploy folder. Since the settings will not be configured, the app will not run properly when deployed -- use with caution.
+
 
 ## Test Framework
 
@@ -66,19 +103,12 @@ By default this template will run as self-hosted using Kestrel, but you can host
 1) Add a site to IIS and point it to the WebHost folder
 2) Configure the bindings to whatever port you want to run it on. The template uses 8085.
 3) Configure the Application Pool to use No Managed Code
-4) Configure the web.config file
-	1) Make sure processPath points to where the executable is stored when the project is built. This is template puts it here: .\bin\Debug\net461\Template.Saturn.WebHost.exe
 
 ## You can also host on IIS as a published site
 
-The above steps will get you there but instead of pointing to the WebHost folder, use Visual Studio or `dotnet publish` to create a published site and use that in IIS. You may need to copy over the web.config file manually. I don't know why.
+The above steps will get you there but instead of pointing to the WebHost folder, use Visual Studio or `dotnet publish` to create a published site and use that in IIS. You will need to copy over the appsettings.Development.json file manually. 
 
 ## Deploying to Azure
 
-TODO
-
-## I might be running on Azure
-
-https://saturn-example.azurewebsites.net/
-
-You can login with your Net ID.
+See the Setup and Configuration section of this Confluence page
+https://confluence.arizona.edu/display/COMT/MedSRP+Azure+Architecture
