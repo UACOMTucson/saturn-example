@@ -46,22 +46,54 @@ let configSerilog (builder:ILoggingBuilder) =
     | _ -> loggingConfig.WriteTo.Console() |> ignore
     builder.AddSerilog(loggingConfig.CreateLogger()) |> ignore
 
-let setupCookies (options:CookieAuthenticationOptions) = 
+let setupCookies (options:CookieAuthenticationOptions) =
     let cookieEvents = new CookieAuthenticationEvents()
-    cookieEvents.OnSigningIn <- (fun ctx -> 
-            let identity = new ClaimsIdentity()
-            identity.AddClaim(new Claim(ClaimTypes.Role, "admin"))
-            identity.AddClaim(new Claim(ClaimTypes.Role, "pcoord"))
-            ctx.Principal.AddIdentity(identity)
-            Task.CompletedTask
-            )
+    cookieEvents.OnSigningIn <- (fun ctx ->
+        
+            //TODO uncomment this code and make work for your application
+            //let getClaims (attributes: UserAttribute list) =
+            //    let identity = new ClaimsIdentity()
+            //    for attr in attributes do 
+            //        for value in attr.Values do
+            //            if attr.Name = "isMemberOf" then
+            //                if value.Contains("dept:COM:medsrp") then //ONLY get the groups in MedSRP
+            //                    identity.AddClaim(new Claim(ClaimTypes.Role, Authorization.getRole value))
+            //            else
+            //                identity.AddClaim(new Claim(attr.Name, value))              
+            //    identity
+
+            let cnf = ctx.HttpContext.RequestServices.GetRequiredService<IConfiguration>()
+            //TODO uncomment and make work for your application
+            //let edsService = new DirectoryServices.EdsClient(cnf.["EDS:Url"], cnf.["EDS:UserName"], cnf.["EDS:Password"]) :> Interfaces.IEdsClient
+            //let userInfo = edsService.GetUserInfo(ctx.Principal.Identity.Name)
+            //ctx.Principal.AddIdentity(getClaims(userInfo.Attributes))
+            Task.CompletedTask)
+        
     options.Events <- cookieEvents
 
+    options.Cookie.SameSite <- SameSiteMode.Strict
+    options.Cookie.HttpOnly <- true
+    options.Cookie.SecurePolicy <- CookieSecurePolicy.Always
+    options.ExpireTimeSpan <- TimeSpan.FromMinutes(30.0)
+    options.SlidingExpiration <- true
+
+let configureServices (services : IServiceCollection) =
+    services.AddSession(fun opts ->
+        opts.IdleTimeout <- TimeSpan.FromMinutes(30.0)
+    ) |> ignore
+    
+    services
+    
+let configureApp (app:IApplicationBuilder) =
+    app.UseHsts() |> ignore
+    app
+    
 let endpointPipe = pipeline {
     plug head
     plug requestId
 }
 let app = application {
+    app_config configureApp
     pipe_through endpointPipe
     logging configSerilog
     error_handler (fun ex logger -> 
